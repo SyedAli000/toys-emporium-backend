@@ -28,12 +28,30 @@ export class OrdersService {
     private config: ConfigService,
   ) {}
 
-  private formatOrder(order: OrderDocument) {
+  private getOrderUserId(userId: unknown): string {
+    if (typeof userId === 'object' && userId !== null && '_id' in userId) {
+      return String((userId as { _id: Types.ObjectId })._id);
+    }
+    return String(userId);
+  }
+
+  private formatOrder(order: OrderDocument, keepPopulatedUser = false) {
     const o = order.toObject ? order.toObject() : order;
+    const populatedUser =
+      typeof o.userId === 'object' &&
+      o.userId !== null &&
+      '_id' in o.userId;
+
     return {
       ...o,
       _id: o._id.toString(),
-      userId: o.userId?.toString(),
+      userId:
+        keepPopulatedUser && populatedUser
+          ? {
+              ...o.userId,
+              _id: (o.userId as { _id: Types.ObjectId })._id.toString(),
+            }
+          : this.getOrderUserId(o.userId),
     };
   }
 
@@ -118,12 +136,12 @@ export class OrdersService {
   async findOne(id: string, user: { userId: string; role: string }) {
     const order = await this.orderModel.findById(id).populate('userId', 'name email');
     if (!order) throw new NotFoundException('Order not found');
-    const isOwner = order.userId.toString() === user.userId;
+    const isOwner = this.getOrderUserId(order.userId) === user.userId;
     const isStaff = ['manager', 'admin', 'super_admin'].includes(user.role);
     if (!isOwner && !isStaff) {
       throw new ForbiddenException();
     }
-    return this.formatOrder(order);
+    return this.formatOrder(order, isStaff);
   }
 
   async updateStatus(
