@@ -5,7 +5,7 @@ import { join } from 'path';
 
 dotenv.config({ path: join(__dirname, '../../.env') });
 
-const MONGODB_URI =
+export const MONGODB_URI =
   process.env.MONGODB_URI || 'mongodb://localhost:27017/toysemporium';
 
 const UserSchema = new mongoose.Schema(
@@ -50,35 +50,34 @@ const BannerSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-async function seed() {
-  await mongoose.connect(MONGODB_URI);
+export async function runSeed() {
   const User = mongoose.model('User', UserSchema);
   const Category = mongoose.model('Category', CategorySchema);
   const Product = mongoose.model('Product', ProductSchema);
   const Banner = mongoose.model('Banner', BannerSchema);
 
-  const demoUsers = [
+  const seedUsers = [
     {
-      email: 'demo@example.com',
-      password: 'password123',
-      name: 'Demo Customer',
-      role: 'customer',
+      email: 'waqasjavedadmin@gmail.com',
+      password: 'pakistan1122@',
+      name: 'Waqas Javed',
+      role: 'admin',
     },
     {
-      email: 'manager@example.com',
-      password: 'password123',
-      name: 'Demo Manager',
+      email: 'manager1@toysemporium.com',
+      password: 'pakistan1122@',
+      name: 'Manager One',
       role: 'manager',
     },
     {
-      email: 'admin@example.com',
-      password: 'password123',
-      name: 'Demo Admin',
-      role: 'admin',
+      email: 'manager2@toysemporium.com',
+      password: 'pakistan1122@',
+      name: 'Manager Two',
+      role: 'manager',
     },
   ];
 
-  for (const u of demoUsers) {
+  for (const u of seedUsers) {
     const exists = await User.findOne({ email: u.email });
     if (!exists) {
       const hash = await bcrypt.hash(u.password, 10);
@@ -179,10 +178,17 @@ async function seed() {
   }
 
   console.log('Seed complete');
+}
+
+async function seed() {
+  await mongoose.connect(MONGODB_URI);
+  await runSeed();
   await mongoose.disconnect();
 }
 
-seed().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  seed().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
