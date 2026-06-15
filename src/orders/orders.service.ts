@@ -13,6 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import {
+  notifyAdminNewOrder,
   notifyCustomerOrderPlaced,
   notifyCustomerStatusChange,
 } from './order-mail.helper';
@@ -116,6 +117,15 @@ export class OrdersService {
       this.config,
     ).catch((err) => {
       console.error('[Order email]', (err as Error).message);
+    });
+
+    void notifyAdminNewOrder(
+      order,
+      this.productModel,
+      this.mailService,
+      this.config,
+    ).catch((err) => {
+      console.error('[Admin order email]', (err as Error).message);
     });
 
     return this.formatOrder(order);

@@ -25,15 +25,26 @@ export async function buildOrderEmailPayload(
   const frontendUrl =
     config.get<string>('FRONTEND_URL') || 'http://localhost:3000';
 
+  const addr = order.shippingAddress;
+
   return {
     orderId: order._id.toString(),
-    customerName: order.shippingAddress.fullName || 'Customer',
+    customerName: addr.fullName || 'Customer',
     customerEmail: email,
     totalAmount: order.totalAmount,
     status: order.status,
     items: lines,
     trackingNumber: order.trackingNumber,
     frontendUrl,
+    shippingAddress: {
+      phone: addr.phone,
+      address: addr.address,
+      city: addr.city,
+      state: addr.state,
+      zipCode: addr.zipCode,
+      country: addr.country,
+    },
+    notes: order.notes,
   };
 }
 
@@ -46,6 +57,17 @@ export async function notifyCustomerOrderPlaced(
   const payload = await buildOrderEmailPayload(order, productModel, config);
   if (!payload) return;
   await mail.sendOrderPlaced(payload);
+}
+
+export async function notifyAdminNewOrder(
+  order: OrderDocument,
+  productModel: Model<ProductDocument>,
+  mail: MailService,
+  config: ConfigService,
+) {
+  const payload = await buildOrderEmailPayload(order, productModel, config);
+  if (!payload) return;
+  await mail.sendNewOrderAlertToAdmin(payload);
 }
 
 export async function notifyCustomerStatusChange(

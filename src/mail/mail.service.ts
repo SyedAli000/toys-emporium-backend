@@ -9,6 +9,15 @@ export type OrderLineForEmail = {
   price: number;
 };
 
+export type OrderShippingDetails = {
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+};
+
 export type OrderEmailPayload = {
   orderId: string;
   customerName: string;
@@ -18,6 +27,8 @@ export type OrderEmailPayload = {
   items: OrderLineForEmail[];
   trackingNumber?: string;
   frontendUrl: string;
+  shippingAddress?: OrderShippingDetails;
+  notes?: string;
 };
 
 @Injectable()
@@ -25,12 +36,15 @@ export class MailService implements OnModuleInit {
   private readonly logger = new Logger(MailService.name);
   private transporter: nodemailer.Transporter | null = null;
   private readonly from: string;
+  private readonly adminEmail: string;
   private readonly enabled: boolean;
 
   constructor(private config: ConfigService) {
     this.from =
       this.config.get<string>('MAIL_FROM') ||
-      '"Toys Emporium" <noreply@toysemporium.local>';
+      '"Toys Emporium" <admin@toys-emporium.com>';
+    this.adminEmail =
+      this.config.get<string>('ADMIN_EMAIL') || 'admin@toys-emporium.com';
     this.enabled = this.config.get<string>('MAIL_ENABLED') !== 'false';
 
     const host = this.config.get<string>('SMTP_HOST');
@@ -79,7 +93,7 @@ export class MailService implements OnModuleInit {
       this.logger.warn(
         `\n========== ORDER EMAIL (NOT SENT TO INBOX) ==========\n` +
           `To: ${to}\nSubject: ${subject}\n\n${text}\n\n` +
-          `>>> Add SMTP_PASS (Gmail App Password) to toys-emporium-backend/.env then restart backend.\n` +
+          `>>> Add SMTP_PASS to toys-emporium-backend/.env then restart backend.\n` +
           `========================================================\n`,
       );
       return;
@@ -118,6 +132,25 @@ export class MailService implements OnModuleInit {
       </tr></thead><tbody>${rows}</tbody></table>`;
   }
 
+  private shippingDetailsHtml(payload: OrderEmailPayload) {
+    const addr = payload.shippingAddress;
+    if (!addr) return '';
+    const notes = payload.notes
+      ? `<p><strong>Delivery notes:</strong> ${payload.notes}</p>`
+      : '';
+    return `
+      <div style="background:#f9f9f9;padding:16px;border-radius:6px;margin:16px 0;font-size:14px;">
+        <p style="margin:0 0 8px;"><strong>Delivery details</strong></p>
+        <p style="margin:0 0 4px;">${payload.customerName}</p>
+        <p style="margin:0 0 4px;">${addr.address}</p>
+        <p style="margin:0 0 4px;">${addr.city}, ${addr.state} ${addr.zipCode}</p>
+        <p style="margin:0 0 4px;">${addr.country}</p>
+        <p style="margin:0 0 4px;"><strong>Phone:</strong> ${addr.phone}</p>
+        <p style="margin:0;"><strong>Email:</strong> ${payload.customerEmail}</p>
+      </div>
+      ${notes}`;
+  }
+
   private wrapHtml(title: string, body: string, ctaUrl?: string, ctaLabel?: string) {
     const cta = ctaUrl
       ? `<p style="margin-top:24px;"><a href="${ctaUrl}" style="background:#0d9488;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;">${ctaLabel || 'View order'}</a></p>`
@@ -140,15 +173,40 @@ export class MailService implements OnModuleInit {
     const orderUrl = `${payload.frontendUrl}/user/orders/${payload.orderId}`;
     const body = `
       <p>Hi ${payload.customerName},</p>
-      <p>We received your order <strong>#${shortId}</strong>. It is <strong>pending</strong> and our team will confirm it soon.</p>
-      <p><strong>Total:</strong> ${formatPrice(payload.totalAmount)} (Cash on Delivery)</p>
+      <p>Your order <strong>#${shortId}</strong> has been <strong>successfully placed</strong>. Thank you for shopping with Toys Emporium!</p>
+      ${this.shippingDetailsHtml(payload)}
+      <p><strong>Order total:</strong> ${formatPrice(payload.totalAmount)} (Cash on Delivery)</p>
       ${this.itemsTableHtml(payload.items)}
+      <p style="font-size:14px;color:#555;">Our team will process your order and contact you if needed. You will receive updates as your order progresses.</p>
     `;
-    const text = `Order #${shortId} placed. Total ${formatPrice(payload.totalAmount)}. Status: pending.`;
+    const text =
+      `Order #${shortId} successfully placed. Total ${formatPrice(payload.totalAmount)}. ` +
+      `Delivery to ${payload.shippingAddress?.address || 'your address'}.`;
     await this.send(
       payload.customerEmail,
-      `Order placed — #${shortId} | Toys Emporium`,
-      this.wrapHtml('Your order was placed', body, orderUrl, 'View your order'),
+      `Order successfully placed — #${shortId} | Toys Emporium`,
+      this.wrapHtml('Order successfully placed', body, orderUrl, 'View your order'),
+      text,
+    );
+  }
+
+  async sendNewOrderAlertToAdmin(payload: OrderEmailPayload) {
+    const shortId = payload.orderId.slice(-8);
+    const orderUrl = `${payload.frontendUrl}/manager/orders/${payload.orderId}`;
+    const body = `
+      <p>A new order has been placed on Toys Emporium.</p>
+      <p><strong>Order #${shortId}</strong></p>
+      ${this.shippingDetailsHtml(payload)}
+      <p><strong>Order total:</strong> ${formatPrice(payload.totalAmount)} (Cash on Delivery)</p>
+      ${this.itemsTableHtml(payload.items)}
+    `;
+    const text =
+      `New order #${shortId} from ${payload.customerName} (${payload.customerEmail}). ` +
+      `Total ${formatPrice(payload.totalAmount)}.`;
+    await this.send(
+      this.adminEmail,
+      `New order received — #${shortId} | Toys Emporium`,
+      this.wrapHtml('New order received', body, orderUrl, 'View order'),
       text,
     );
   }
