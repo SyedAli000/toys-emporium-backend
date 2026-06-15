@@ -5,6 +5,7 @@ import {
   Notification,
   NotificationDocument,
 } from '../schemas/notification.schema';
+import { formatPrice } from '../common/currency';
 
 @Injectable()
 export class NotificationsService {
@@ -22,7 +23,7 @@ export class NotificationsService {
     return this.notificationModel.create({
       type: 'ORDER',
       title: `New order #${shortId}`,
-      message: `${order.shippingAddress.fullName} (${order.shippingAddress.phone}) placed an order for $${order.totalAmount.toFixed(2)}`,
+      message: `${order.shippingAddress.fullName} (${order.shippingAddress.phone}) placed an order for ${formatPrice(order.totalAmount)}`,
       relatedOrderId: new Types.ObjectId(order._id.toString()),
       targetRole: 'manager',
       isRead: false,

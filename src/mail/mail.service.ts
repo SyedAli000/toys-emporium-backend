@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { formatPrice } from '../common/currency';
 
 export type OrderLineForEmail = {
   name: string;
@@ -105,7 +106,7 @@ export class MailService implements OnModuleInit {
           `<tr>
             <td style="padding:8px;border-bottom:1px solid #eee;">${i.name}</td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">${i.quantity}</td>
-            <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">$${(i.price * i.quantity).toFixed(2)}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${formatPrice(i.price * i.quantity)}</td>
           </tr>`,
       )
       .join('');
@@ -140,10 +141,10 @@ export class MailService implements OnModuleInit {
     const body = `
       <p>Hi ${payload.customerName},</p>
       <p>We received your order <strong>#${shortId}</strong>. It is <strong>pending</strong> and our team will confirm it soon.</p>
-      <p><strong>Total:</strong> $${payload.totalAmount.toFixed(2)} (Cash on Delivery)</p>
+      <p><strong>Total:</strong> ${formatPrice(payload.totalAmount)} (Cash on Delivery)</p>
       ${this.itemsTableHtml(payload.items)}
     `;
-    const text = `Order #${shortId} placed. Total $${payload.totalAmount.toFixed(2)}. Status: pending.`;
+    const text = `Order #${shortId} placed. Total ${formatPrice(payload.totalAmount)}. Status: pending.`;
     await this.send(
       payload.customerEmail,
       `Order placed — #${shortId} | Toys Emporium`,
@@ -159,7 +160,7 @@ export class MailService implements OnModuleInit {
       <p>Hi ${payload.customerName},</p>
       <p>Good news! Your order <strong>#${shortId}</strong> has been <strong>confirmed</strong> by our team.</p>
       <p>We will notify you when it ships.</p>
-      <p><strong>Total:</strong> $${payload.totalAmount.toFixed(2)}</p>
+      <p><strong>Total:</strong> ${formatPrice(payload.totalAmount)}</p>
     `;
     await this.send(
       payload.customerEmail,
