@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Cart, CartDocument } from '../schemas/cart.schema';
 import { Product, ProductDocument } from '../schemas/product.schema';
+import { getSalePrice } from '../common/product-pricing';
 
 @Injectable()
 export class CartService {
@@ -31,21 +32,40 @@ export class CartService {
   async getCart(userId: string) {
     const cart = await this.getOrCreate(userId);
     await cart.populate('items.productId');
+    let pricesUpdated = false;
+
+    for (const item of cart.items) {
+      const p = item.productId as unknown as ProductDocument;
+      if (!p?._id) continue;
+      const salePrice = getSalePrice(p);
+      if (item.price !== salePrice) {
+        item.price = salePrice;
+        pricesUpdated = true;
+      }
+    }
+
+    if (pricesUpdated) {
+      await cart.save();
+    }
+
     return {
       _id: cart._id,
       items: cart.items.map((item) => {
         const p = item.productId as unknown as ProductDocument;
+        const salePrice = p?._id ? getSalePrice(p) : item.price;
         return {
           _id: (item as { _id?: Types.ObjectId })._id?.toString(),
           productId: p?._id?.toString() || item.productId.toString(),
           quantity: item.quantity,
-          price: item.price,
+          price: salePrice,
           product: p
             ? {
                 _id: p._id.toString(),
                 name: p.name || (p as unknown as { title?: string }).title,
                 images: p.images || [],
-                price: item.price,
+                price: salePrice,
+                originalPrice: Number(p.price ?? 0),
+                discountPercentage: Number(p.discountPercentage ?? 0),
               }
             : null,
         };
@@ -60,13 +80,14 @@ export class CartService {
     if (stock < quantity) {
       throw new BadRequestException('Insufficient stock');
     }
-    const price = Number(product.price ?? 0);
+    const price = getSalePrice(product);
     const cart = await this.getOrCreate(userId);
     const existing = cart.items.find(
       (i) => i.productId.toString() === productId,
     );
     if (existing) {
       existing.quantity += quantity;
+      existing.price = price;
     } else {
       cart.items.push({
         productId: new Types.ObjectId(productId),
@@ -95,6 +116,9 @@ export class CartService {
         throw new BadRequestException('Insufficient stock');
       }
       item.quantity = quantity;
+      if (product) {
+        item.price = getSalePrice(product);
+      }
     }
     await cart.save();
     return this.getCart(userId);
