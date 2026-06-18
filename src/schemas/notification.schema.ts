@@ -26,6 +26,9 @@ export class Notification {
   @Prop({ default: 'manager' })
   targetRole: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  targetUserId?: Types.ObjectId;
+
   @Prop({ default: false })
   isRead: boolean;
 }

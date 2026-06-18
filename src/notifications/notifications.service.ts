@@ -53,6 +53,82 @@ export class NotificationsService {
     });
   }
 
+  async createForOrderStatusUpdate(order: {
+    _id: Types.ObjectId | string;
+    userId: Types.ObjectId | string;
+    status: string;
+    trackingNumber?: string;
+  }) {
+    if (!['confirmed', 'shipped'].includes(order.status)) return;
+
+    const shortId = order._id.toString().slice(-8);
+    const title =
+      order.status === 'confirmed'
+        ? `Order #${shortId} confirmed`
+        : `Order #${shortId} shipped`;
+    const message =
+      order.status === 'confirmed'
+        ? 'Your order has been confirmed and is being prepared.'
+        : order.trackingNumber
+          ? `Your order is on its way! Tracking: ${order.trackingNumber}`
+          : 'Your order has been shipped and is on its way!';
+
+    return this.notificationModel.create({
+      type: 'ORDER',
+      title,
+      message,
+      relatedOrderId: new Types.ObjectId(order._id.toString()),
+      targetRole: 'customer',
+      targetUserId: new Types.ObjectId(order.userId.toString()),
+      isRead: false,
+    });
+  }
+
+  findForUser(userId: string, limit = 20) {
+    return this.notificationModel
+      .find({
+        targetRole: 'customer',
+        targetUserId: new Types.ObjectId(userId),
+      })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+  }
+
+  async countUnreadForUser(userId: string) {
+    return this.notificationModel.countDocuments({
+      targetRole: 'customer',
+      targetUserId: new Types.ObjectId(userId),
+      isRead: false,
+    });
+  }
+
+  async markReadForUser(id: string, userId: string) {
+    const n = await this.notificationModel.findOneAndUpdate(
+      {
+        _id: id,
+        targetUserId: new Types.ObjectId(userId),
+        targetRole: 'customer',
+      },
+      { isRead: true },
+      { new: true },
+    );
+    if (!n) throw new NotFoundException('Notification not found');
+    return n;
+  }
+
+  async markAllReadForUser(userId: string) {
+    await this.notificationModel.updateMany(
+      {
+        targetRole: 'customer',
+        targetUserId: new Types.ObjectId(userId),
+        isRead: false,
+      },
+      { isRead: true },
+    );
+    return { message: 'All notifications marked as read' };
+  }
+
   findForManager(limit = 20) {
     return this.notificationModel
       .find({ targetRole: 'manager' })

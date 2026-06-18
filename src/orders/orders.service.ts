@@ -177,6 +177,19 @@ export class OrdersService {
       console.error('[Order status email]', (err as Error).message);
     });
 
+    if (order.status !== previousStatus) {
+      void this.notificationsService
+        .createForOrderStatusUpdate({
+          _id: order._id,
+          userId: order.userId,
+          status: order.status,
+          trackingNumber: order.trackingNumber,
+        })
+        .catch((err) => {
+          console.error('[Order status notification]', (err as Error).message);
+        });
+    }
+
     return this.formatOrder(order);
   }
 
