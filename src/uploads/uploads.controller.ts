@@ -45,14 +45,9 @@ export class UploadsController {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
-    const port = process.env.PORT || 3001;
-    const base =
-      process.env.API_PUBLIC_URL ||
-      process.env.FRONTEND_URL?.replace(':3000', `:${port}`) ||
-      `http://localhost:${port}`;
-    const root = base.replace(/\/api\/?$/, '');
+    // Store a relative path so the frontend can resolve the correct public API host.
     return {
-      url: `${root}/uploads/${file.filename}`,
+      url: `/uploads/${file.filename}`,
       filename: file.filename,
     };
   }
