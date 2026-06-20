@@ -11,8 +11,11 @@ export class AnalyticsController {
   constructor(private analyticsService: AnalyticsService) {}
 
   @Get('dashboard')
-  dashboard() {
-    return this.analyticsService.dashboard();
+  dashboard(@Query('month') month?: string, @Query('year') year?: string) {
+    return this.analyticsService.dashboard(
+      month ? Number(month) : undefined,
+      year ? Number(year) : undefined,
+    );
   }
 
   @Get('sales')

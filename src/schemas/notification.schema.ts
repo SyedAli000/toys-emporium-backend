@@ -31,6 +31,9 @@ export class Notification {
 
   @Prop({ default: false })
   isRead: boolean;
+
+  @Prop()
+  readAt?: Date;
 }
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);

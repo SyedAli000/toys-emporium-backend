@@ -14,6 +14,17 @@ export class NotificationsService {
     private notificationModel: Model<NotificationDocument>,
   ) {}
 
+  private async purgeExpiredRead() {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await this.notificationModel.deleteMany({
+      isRead: true,
+      $or: [
+        { readAt: { $lte: cutoff } },
+        { readAt: { $exists: false }, updatedAt: { $lte: cutoff } },
+      ],
+    });
+  }
+
   async createForNewOrder(order: {
     _id: Types.ObjectId | string;
     shippingAddress: { fullName: string; phone: string };
@@ -55,10 +66,11 @@ export class NotificationsService {
 
   async createForOrderStatusUpdate(order: {
     _id: Types.ObjectId | string;
-    userId: Types.ObjectId | string;
+    userId?: Types.ObjectId | string | null;
     status: string;
     trackingNumber?: string;
   }) {
+    if (!order.userId) return;
     if (!['confirmed', 'shipped'].includes(order.status)) return;
 
     const shortId = order._id.toString().slice(-8);
@@ -129,15 +141,25 @@ export class NotificationsService {
     return { message: 'All notifications marked as read' };
   }
 
-  findForManager(limit = 20) {
+  async findForManager(limit = 20) {
+    await this.purgeExpiredRead();
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     return this.notificationModel
-      .find({ targetRole: 'manager' })
+      .find({
+        targetRole: 'manager',
+        $or: [
+          { isRead: false },
+          { isRead: true, readAt: { $gte: cutoff } },
+          { isRead: true, readAt: { $exists: false }, updatedAt: { $gte: cutoff } },
+        ],
+      })
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
   }
 
   async countUnread() {
+    await this.purgeExpiredRead();
     return this.notificationModel.countDocuments({
       targetRole: 'manager',
       isRead: false,
@@ -147,18 +169,20 @@ export class NotificationsService {
   async markRead(id: string) {
     const n = await this.notificationModel.findByIdAndUpdate(
       id,
-      { isRead: true },
+      { isRead: true, readAt: new Date() },
       { new: true },
     );
     if (!n) throw new NotFoundException('Notification not found');
+    await this.purgeExpiredRead();
     return n;
   }
 
   async markAllRead() {
     await this.notificationModel.updateMany(
       { targetRole: 'manager', isRead: false },
-      { isRead: true },
+      { isRead: true, readAt: new Date() },
     );
+    await this.purgeExpiredRead();
     return { message: 'All notifications marked as read' };
   }
 }

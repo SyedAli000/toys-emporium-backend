@@ -71,10 +71,14 @@ export class MailService implements OnModuleInit {
     }
   }
 
-  async onModuleInit() {
+  onModuleInit() {
     if (!this.transporter) return;
+    void this.verifySmtpConnection();
+  }
+
+  private async verifySmtpConnection() {
     try {
-      await this.transporter.verify();
+      await this.transporter!.verify();
       this.logger.log('SMTP connection verified — order emails will be delivered to inbox');
     } catch (err) {
       this.logger.error(

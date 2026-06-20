@@ -46,14 +46,49 @@ export class OrdersService {
     return {
       ...o,
       _id: o._id.toString(),
-      userId:
-        keepPopulatedUser && populatedUser
+      userId: o.userId
+        ? keepPopulatedUser && populatedUser
           ? {
               ...o.userId,
               _id: (o.userId as { _id: Types.ObjectId })._id.toString(),
             }
-          : this.getOrderUserId(o.userId),
+          : this.getOrderUserId(o.userId)
+        : null,
     };
+  }
+
+  private async buildOrderItems(
+    rawItems: { productId: string; quantity: number }[],
+  ) {
+    const items: { productId: Types.ObjectId; quantity: number; price: number }[] =
+      [];
+    let totalAmount = 0;
+
+    for (const item of rawItems) {
+      const product = await this.productModel.findById(item.productId);
+      if (!product) continue;
+      const stock = product.stock ?? 0;
+      if (stock < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for ${product.name || 'product'}`,
+        );
+      }
+      product.stock = stock - item.quantity;
+      await product.save();
+      const lineTotal = product.price * item.quantity;
+      totalAmount += lineTotal;
+      items.push({
+        productId: new Types.ObjectId(item.productId),
+        quantity: item.quantity,
+        price: product.price,
+      });
+    }
+
+    if (!items.length) {
+      throw new BadRequestException('No valid items in order');
+    }
+
+    return { items, totalAmount };
   }
 
   async create(
@@ -69,31 +104,16 @@ export class OrdersService {
       throw new BadRequestException('Cart is empty');
     }
 
-    const items: { productId: Types.ObjectId; quantity: number; price: number }[] = [];
-    let totalAmount = 0;
-
-    for (const item of cart.items) {
-      const product = await this.productModel.findById(item.productId);
-      if (!product) continue;
-      const stock = product.stock ?? 0;
-      if (stock < item.quantity) {
-        throw new BadRequestException(
-          `Insufficient stock for ${product.name || 'product'}`,
-        );
-      }
-      product.stock = stock - item.quantity;
-      await product.save();
-      const lineTotal = item.price * item.quantity;
-      totalAmount += lineTotal;
-      items.push({
-        productId: new Types.ObjectId(item.productId),
+    const { items, totalAmount } = await this.buildOrderItems(
+      cart.items.map((item) => ({
+        productId: item.productId.toString(),
         quantity: item.quantity,
-        price: item.price,
-      });
-    }
+      })),
+    );
 
     const order = await this.orderModel.create({
       userId: new Types.ObjectId(userId),
+      isGuest: false,
       items,
       shippingAddress: body.shippingAddress,
       totalAmount,
@@ -131,6 +151,55 @@ export class OrdersService {
     return this.formatOrder(order);
   }
 
+  async createGuest(body: {
+    items: { productId: string; quantity: number }[];
+    shippingAddress: Order['shippingAddress'];
+    notes?: string;
+    paymentMethod?: string;
+  }) {
+    if (!body.items?.length) {
+      throw new BadRequestException('Order must include at least one item');
+    }
+
+    const { items, totalAmount } = await this.buildOrderItems(body.items);
+
+    const order = await this.orderModel.create({
+      isGuest: true,
+      items,
+      shippingAddress: body.shippingAddress,
+      totalAmount,
+      status: 'pending',
+      paymentMethod: body.paymentMethod || 'cod',
+      notes: body.notes,
+    });
+
+    await this.notificationsService.createForNewOrder({
+      _id: order._id,
+      shippingAddress: body.shippingAddress,
+      totalAmount,
+    });
+
+    void notifyCustomerOrderPlaced(
+      order,
+      this.productModel,
+      this.mailService,
+      this.config,
+    ).catch((err) => {
+      console.error('[Guest order email]', (err as Error).message);
+    });
+
+    void notifyAdminNewOrder(
+      order,
+      this.productModel,
+      this.mailService,
+      this.config,
+    ).catch((err) => {
+      console.error('[Guest admin order email]', (err as Error).message);
+    });
+
+    return this.formatOrder(order);
+  }
+
   async findByUser(userId: string) {
     const orders = await this.orderModel
       .find({ userId: new Types.ObjectId(userId) })
@@ -139,7 +208,7 @@ export class OrdersService {
     return orders.map((o) => ({
       ...o,
       _id: o._id.toString(),
-      userId: o.userId.toString(),
+      userId: o.userId?.toString() ?? null,
     }));
   }
 
@@ -162,7 +231,15 @@ export class OrdersService {
     if (!existing) throw new NotFoundException('Order not found');
     const previousStatus = existing.status;
 
-    const order = await this.orderModel.findByIdAndUpdate(id, data, {
+    const updatePayload: Record<string, unknown> = { ...data };
+    if (data.status === 'confirmed' && previousStatus !== 'confirmed') {
+      updatePayload.confirmedAt = new Date();
+    }
+    if (data.status === 'shipped' && previousStatus !== 'shipped') {
+      updatePayload.shippedAt = new Date();
+    }
+
+    const order = await this.orderModel.findByIdAndUpdate(id, updatePayload, {
       new: true,
     });
     if (!order) throw new NotFoundException('Order not found');

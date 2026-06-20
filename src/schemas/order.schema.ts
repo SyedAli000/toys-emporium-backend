@@ -29,8 +29,11 @@ export class ShippingAddress {
 
 @Schema({ timestamps: true })
 export class Order {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  userId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  userId?: Types.ObjectId;
+
+  @Prop({ default: false })
+  isGuest: boolean;
 
   @Prop({ type: [OrderItem], default: [] })
   items: OrderItem[];
@@ -52,6 +55,12 @@ export class Order {
 
   @Prop()
   trackingNumber?: string;
+
+  @Prop()
+  confirmedAt?: Date;
+
+  @Prop()
+  shippedAt?: Date;
 
   @Prop()
   notes?: string;

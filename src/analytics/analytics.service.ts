@@ -5,6 +5,9 @@ import { Order, OrderDocument } from '../schemas/order.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 import { Product, ProductDocument } from '../schemas/product.schema';
 
+/** Revenue counts ONLY after manager presses Ship. */
+const REVENUE_STATUSES = ['shipped', 'delivered'];
+
 @Injectable()
 export class AnalyticsService {
   constructor(
@@ -13,21 +16,63 @@ export class AnalyticsService {
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
   ) {}
 
-  async dashboard() {
-    const [totalOrders, totalUsers, totalProducts, revenue] = await Promise.all([
-      this.orderModel.countDocuments(),
-      this.userModel.countDocuments(),
-      this.productModel.countDocuments(),
-      this.orderModel.aggregate([
-        { $match: { status: { $ne: 'cancelled' } } },
-        { $group: { _id: null, total: { $sum: '$totalAmount' } } },
-      ]),
-    ]);
+  private getMonthRange(month?: number, year?: number) {
+    const now = new Date();
+    const m = month ?? now.getMonth() + 1;
+    const y = year ?? now.getFullYear();
+    const start = new Date(y, m - 1, 1);
+    const end = new Date(y, m, 1);
+    const label = start.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    return { start, end, month: m, year: y, monthLabel: label };
+  }
+
+  /** Only shipped/delivered orders with a ship date in the selected month. */
+  private revenueMatchForMonth(start: Date, end: Date) {
     return {
-      totalRevenue: revenue[0]?.total ?? 0,
-      totalOrders,
-      totalUsers,
+      status: { $in: REVENUE_STATUSES },
+      shippedAt: { $exists: true, $gte: start, $lt: end },
+    };
+  }
+
+  async dashboard(month?: number, year?: number) {
+    const { start, end, monthLabel, month: m, year: y } = this.getMonthRange(
+      month,
+      year,
+    );
+
+    const revenueMatch = this.revenueMatchForMonth(start, end);
+
+    const [totalProducts, monthStats, allTimeOrders, pendingOrders] =
+      await Promise.all([
+        this.productModel.countDocuments(),
+        this.orderModel.aggregate([
+          { $match: revenueMatch },
+          {
+            $group: {
+              _id: null,
+              totalRevenue: { $sum: '$totalAmount' },
+              shippedOrders: { $sum: 1 },
+            },
+          },
+        ]),
+        this.orderModel.countDocuments(),
+        this.orderModel.countDocuments({
+          status: { $in: ['pending', 'confirmed'] },
+        }),
+      ]);
+
+    const stats = monthStats[0] ?? { totalRevenue: 0, shippedOrders: 0 };
+
+    return {
+      totalRevenue: stats.totalRevenue ?? 0,
+      shippedOrders: stats.shippedOrders ?? 0,
+      confirmedOrders: stats.shippedOrders ?? 0,
+      totalOrders: allTimeOrders,
+      pendingOrders,
       totalProducts,
+      month: m,
+      year: y,
+      monthLabel,
       revenueChange: '+0%',
       ordersChange: '+0%',
       usersChange: '+0%',
@@ -39,10 +84,17 @@ export class AnalyticsService {
     const since = new Date();
     since.setDate(since.getDate() - days);
     const data = await this.orderModel.aggregate([
-      { $match: { createdAt: { $gte: since }, status: { $ne: 'cancelled' } } },
+      {
+        $match: {
+          status: { $in: REVENUE_STATUSES },
+          shippedAt: { $exists: true, $gte: since },
+        },
+      },
       {
         $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          _id: {
+            $dateToString: { format: '%Y-%m-%d', date: '$shippedAt' },
+          },
           total: { $sum: '$totalAmount' },
           count: { $sum: 1 },
         },
